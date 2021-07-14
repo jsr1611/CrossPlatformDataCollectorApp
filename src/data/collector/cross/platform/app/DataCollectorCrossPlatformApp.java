@@ -12,9 +12,10 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.PreparedStatement;
+
 import de.re.easymodbus.exceptions.ModbusException;
 import de.re.easymodbus.modbusclient.ModbusClient;
-import java.awt.dnd.DragGestureEvent;
+
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -24,7 +25,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- *
  * @author JIMMY
  */
 public class DataCollectorCrossPlatformApp {
@@ -85,7 +85,26 @@ public class DataCollectorCrossPlatformApp {
                         //System.out.format("Counter: %d, Client connected: %s. ", counter, client.getipAddress());                    
                         d = collect(client);
 
-                        saveToDatabase(d, spcData, dbInsert_OK, g.getS_IDs(c)); 
+                        if (d != null && d.length > 39 && d[22] != 0) {
+                            spcData = prepareDataForStoring(d, spcData);
+
+                            dbInsert_OK = InsertDataIntoDB(spcData);
+
+                            System.out.println("" + spcData.toString() + "dbInsert_OK: " + dbInsert_OK);
+
+
+                        } else {
+                            if (d == null) {
+                                System.out.println("No data. d = null. sensorId: " + sensorId);
+                            } else {
+                                System.out.print("\n sensorId: " + sensorId);
+                                for (int i = 0; i < d.length; i++) {
+                                    System.out.print(" " + d[i] + " ");
+                                }
+                                System.out.println("\n");
+                            }
+
+                        }
 
                         //System.out.print(" Client disconnected. ");
                         client.Disconnect();
@@ -103,54 +122,44 @@ public class DataCollectorCrossPlatformApp {
         }
     }
 
-    private static void saveToDatabase(int[] d, SpcData spcData, boolean dbInsert_OK, int sensorId) {
+    private static SpcData prepareDataForStoring(int[] d, SpcData spcData) {
         spcData.setPc_time(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")));
-        if (d != null && d.length > 39 && d[22] != 0) {
-            //System.out.print("Size of data received: " + d.length + ". ");
-            String someTempoString = "";
-            for (int index = 0; index < 12;) {
-                someTempoString += (Character.toString((char) d[index]) + Character.toString((char) d[index + 1]));
-                index += 2;
-                if (index < 12) {
-                    someTempoString += "-";
-                }
+
+        //System.out.print("Size of data received: " + d.length + ". ");
+        String someTempoString = "";
+        for (int index = 0; index < 12; ) {
+            someTempoString += (Character.toString((char) d[index]) + Character.toString((char) d[index + 1]));
+            index += 2;
+            if (index < 12) {
+                someTempoString += "-";
             }
-            spcData.setID_long(someTempoString);
-
-            someTempoString = "20" + String.format("%02d", d[12]) + "-" + String.format("%02d", d[13]) + "-" + String.format("%02d", d[14]) + " " + String.format("%02d", d[15]) + ":" + String.format("%02d", d[16]) + ":" + String.format("%02d", d[17]) + ".000";
-            spcData.setTemperature(String.format("%02d", d[18]) + "." + String.format("%02d", d[19]));
-            spcData.setHumidity(String.format("%02d", d[20]) + "." + String.format("%02d", d[21]));
-            spcData.setParticle03(extractParticleData(d, 24));
-            spcData.setParticle05(extractParticleData(d, 26));
-            spcData.setParticle10(extractParticleData(d, 28));
-            spcData.setParticle50(extractParticleData(d, 32));
-            spcData.setParticle100(extractParticleData(d, 34));
-            spcData.setParticle250(extractParticleData(d, 36));
-
-            spcData = SetData(spcData, "particle");
-
-            spcData.setTime(someTempoString);
-
-            dbInsert_OK = InsertDataIntoDB(spcData);
-            
-            System.out.println("" + spcData.toString() + "dbInsert_OK: " + dbInsert_OK);
-        } 
-        else
-        {
-            if (d == null) {
-                System.out.println("No data. d = null. sensorId: " + sensorId);
-            } 
-            else {
-                System.out.print("\n sensorId: " + sensorId);
-                for (int i = 0; i < d.length; i++) {
-                    System.out.print(" " + d[i] + " ");
-                }
-                System.out.println("\n");
-            }
-
         }
+        spcData.setID_long(someTempoString);
+
+        someTempoString = "20" + String.format("%02d", d[12]) + "-" + String.format("%02d", d[13]) + "-" + String.format("%02d", d[14]) + " " + String.format("%02d", d[15]) + ":" + String.format("%02d", d[16]) + ":" + String.format("%02d", d[17]) + ".000";
+        spcData.setTemperature(String.format("%02d", d[18]) + "." + String.format("%02d", d[19]));
+        spcData.setHumidity(String.format("%02d", d[20]) + "." + String.format("%02d", d[21]));
+        spcData.setParticle03(extractParticleData(d, 24));
+        spcData.setParticle05(extractParticleData(d, 26));
+        spcData.setParticle10(extractParticleData(d, 28));
+        spcData.setParticle50(extractParticleData(d, 32));
+        spcData.setParticle100(extractParticleData(d, 34));
+        spcData.setParticle250(extractParticleData(d, 36));
+
+        spcData = SetData(spcData, "particle");
+
+        spcData.setTime(someTempoString);
+
+
+        return spcData;
     }
 
+    /**
+     * Return column data as a list of int values from an SQL table
+     * @param tableName - table name
+     * @param columnName - column name
+     * @return - a list of int values
+     */
     private static ArrayList<Integer> GetColumnDataAsListOfInt(String tableName, String columnName) {
         ArrayList<Integer> result = null;
         System.out.println("Getting column from table: " + tableName + " " + columnName);
@@ -174,6 +183,12 @@ public class DataCollectorCrossPlatformApp {
         return result;
     }
 
+    /**
+     * Return column data as a list of string values from an SQL table
+     * @param tableName - table name
+     * @param columnName - column name
+     * @return - a list of string values
+     */
     private static ArrayList<String> GetColumnDataAsListOfString(String tableName, String columnName) {
         ArrayList<String> result = new ArrayList<>();
 
@@ -222,7 +237,7 @@ public class DataCollectorCrossPlatformApp {
      * Return particle data extracted from int16 array received from sensor
      * device.
      *
-     * @param d - is an array of int16 data
+     * @param d          - is an array of int16 data
      * @param startIndex - is starting index
      * @return particle data in the form of a String
      */
@@ -245,7 +260,7 @@ public class DataCollectorCrossPlatformApp {
     /**
      * 데이터 수집 여부 확인 및 spcData object에 저장.
      *
-     * @param spcData - sensor data object
+     * @param spcData        - sensor data object
      * @param sensorCategory - "particle" 또는 "pressure"
      * @return SpcData object 반환
      */
@@ -279,8 +294,8 @@ public class DataCollectorCrossPlatformApp {
 
         try {
             sqlSelect = String.format("SELECT %s, %s "
-                    + "FROM [%s].[dbo].[%s] "
-                    + "WHERE %s = '%s' AND %s = %d",
+                            + "FROM [%s].[dbo].[%s] "
+                            + "WHERE %s = '%s' AND %s = %d",
                     tbColumnNames.get(2), tbColumnNames.get(7),
                     g.getDB_NAME(), g.getS_SanghanHahan(),
                     tbColumnNames.get(0), sensorCategory, tbColumnNames.get(1), sensorId);
@@ -341,63 +356,63 @@ public class DataCollectorCrossPlatformApp {
             // -------------온도 저장 ---------------->
             if (data.isTemperature_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'temperature'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'temperature'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getTemperature());
             }
 
             //---------습도 저장-------------------->
             if (data.isHumidity_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'humidity'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'humidity'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getHumidity());
             }
             //---------파티클 0.3um 저장-------------------->
             if (data.isParticle03_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'particle03'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'particle03'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getParticle03());
             }
 
             //---------파티클 0.5um 저장-------------------->
             if (data.isParticle05_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'particle05'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'particle05'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getParticle05());
             }
 
             //---------파티클 1.0um 저장-------------------->
             if (data.isParticle10_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'particle10'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'particle10'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getParticle10());
             }
 
             //---------파티클 5.0um 저장-------------------->
             if (data.isParticle50_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'particle50'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'particle50'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getParticle50());
             }
 
             //---------파티클 10.0um 저장-------------------->
             if (data.isParticle100_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'particle100'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'particle100'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getParticle100());
             }
 
             //---------파티클 25.0um 저장-------------------->
             if (data.isParticle250_on()) {
                 sqlInsert += String.format("INSERT INTO [%s].dbo.[%s] VALUES"
-                        + "('%s', '%s', %d, 'particle250'" // sensorCode
-                        + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
+                                + "('%s', '%s', %d, 'particle250'" // sensorCode
+                                + ", '%s', '');", g.getDB_NAME(), g.getDB_DATATABLE(),
                         data.getPc_time(), data.getTime(), data.getID(), data.getParticle250());
             }
 
@@ -448,7 +463,7 @@ public class DataCollectorCrossPlatformApp {
     /**
      * Data가 센서ID 및 센서시간 기준으로 중복인지 아닌지 확인해주는 함수
      *
-     * @param sensorId - 센서ID
+     * @param sensorId  - 센서ID
      * @param timestamp - 센서 (실제 데이터 측정) 시간
      * @return boolean true (중복 데이터) or false (최신 데이터)
      */
@@ -456,7 +471,7 @@ public class DataCollectorCrossPlatformApp {
         boolean result = false;
         try {
             String sqlSelect = String.format("SELECT TOP 1 1 FROM [%s].[dbo].[%s] "
-                    + "WHERE %s = %d AND %s LIKE '%s%%';",
+                            + "WHERE %s = %d AND %s LIKE '%s%%';",
                     g.getDB_NAME(), g.getDB_DATATABLE(),
                     g.getS_DTColumns(2), sensorId, g.getS_DTColumns(1), timestamp.substring(0, timestamp.length() - 7));
             if (myCon.isClosed()) {
