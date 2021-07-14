@@ -41,15 +41,16 @@ public class DataCollectorCrossPlatformApp {
     public static void main(String[] args) {
         // TODO code application logic here
         ModbusClient client = new ModbusClient();
+        client.setConnectionTimeout(3000);
         SpcData spcData = null;
         String ip = "192.168.12.143";
-        int port = 15002;
-        client.setUnitIdentifier((byte) 4);
+        int port = 15004;
+
         g.setDB_SERVERNAME("192.168.11.209");
         g.setDB_NAME("SENSORDATA");
         g.setDB_UID("dlitdb");
         g.setDB_PWD("dlitdb");
-        g.setS_DeviceTable(g.getDB_NAME().charAt(0)+"_DEVICES");
+        g.setS_DeviceTable(g.getDB_NAME().charAt(0) + "_DEVICES");
         g.setDB_DATATABLE(g.getDB_NAME().charAt(0) + "_DATATABLE");
         g.setS_SanghanHahan((g.getDB_NAME().charAt(0) + "_SanghanHahan"));
         String sqlConStr = String.format("jdbc:sqlserver://%s;user=%s;password=%s", g.getDB_SERVERNAME(), g.getDB_UID(), g.getDB_PWD());
@@ -62,101 +63,123 @@ public class DataCollectorCrossPlatformApp {
             System.out.println(ex.getMessage() + Arrays.toString(ex.getStackTrace()));
         }
         g.setS_DTColumns(GetTableColumnNames(g.getDB_DATATABLE()));
-        g.setS_IDs(GetColumnDataAsListOfInt(g.getS_DeviceTable(), g.getS_DTColumns(2))); 
+        g.setS_IDs(GetColumnDataAsListOfInt(g.getS_DeviceTable(), g.getS_DTColumns(2)));
+        g.setIP_LIST(new ArrayList<>(Arrays.asList("192.168.12.140", "192.168.12.141", "192.168.12.142", "192.168.12.143")));
+        g.setPORT_LIST(new ArrayList<>(Arrays.asList(15001, 15002, 15003, 15004)));
+
         int counter = 0;
         boolean dbInsert_OK;
-
+        int sensorId;
         while (true) {
-            spcData = new SpcData();
-            dbInsert_OK = false;
-            counter += 1;
-            boolean connected = connect(client, ip, port);
             try {
-                int[] d = null;
-                if (connected) {
-                    //System.out.format("Counter: %d, Client connected: %s. ", counter, client.getipAddress());                    
-                    d = collect(client);
-                    spcData.setPc_time(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")));
-                    if (d != null && d.length > 39 && d[22] != 0) {
-                        //System.out.print("Size of data received: " + d.length + ". ");
-                        String someTempoString = "";
-                        for (int index = 0; index < 12;) {
-                            someTempoString += (Character.toString((char) d[index]) + Character.toString((char) d[index + 1]));
-                            index += 2;
-                            if (index < 12) {
-                                someTempoString += "-";
-                            }
-                        }
-                        spcData.setID_long(someTempoString);
+                for (int c = 0; c < g.getS_IDs().size(); c++) {
+                    sensorId = g.getS_IDs(c);
+                    client.setUnitIdentifier((byte) sensorId);
+                    spcData = new SpcData();
+                    dbInsert_OK = false;
+                    counter += 1;
+                    boolean connected = connect(client, g.getIP_LIST(c), g.getPORT_LIST(c));
 
-                        someTempoString = "20" + String.format("%02d", d[12]) + "-" + String.format("%02d", d[13]) + "-" + String.format("%02d", d[14]) + " " + String.format("%02d", d[15]) + ":" + String.format("%02d", d[16]) + ":" + String.format("%02d", d[17]) + ".000";
-                        spcData.setTemperature(String.format("%02d", d[18]) + "." + String.format("%02d", d[19]));
-                        spcData.setHumidity(String.format("%02d", d[20]) + "." + String.format("%02d", d[21]));
-                        spcData.setParticle03(extractParticleData(d, 24));
-                        spcData.setParticle05(extractParticleData(d, 26));
-                        spcData.setParticle10(extractParticleData(d, 28));
-                        spcData.setParticle50(extractParticleData(d, 32));
-                        spcData.setParticle100(extractParticleData(d, 34));
-                        spcData.setParticle250(extractParticleData(d, 36));
+                    int[] d = null;
+                    if (connected) {
+                        //System.out.format("Counter: %d, Client connected: %s. ", counter, client.getipAddress());                    
+                        d = collect(client);
 
-                        spcData = SetData(spcData, "particle");
+                        saveToDatabase(d, spcData, dbInsert_OK, g.getS_IDs(c)); 
 
-                        spcData.setTime(someTempoString);
-
-                        dbInsert_OK = InsertDataIntoDB(spcData);
-                        System.out.println("" + spcData.toString() + "dbInsert_OK: " + dbInsert_OK);
-                        
+                        //System.out.print(" Client disconnected. ");
+                        client.Disconnect();
+                    } else {
+                        System.out.println(" 연결 실패했다. sensorId: " + g.getS_IDs(c));
                     }
 
-                    //System.out.print(" Client disconnected. ");
+                    //Thread.sleep(1000);
                 }
-
-                client.Disconnect();
-                Thread.sleep(1000);
-
-            } catch (IOException | InterruptedException e) {
+            } catch (IOException e) {
                 System.out.println("Error disconnecting the client: " + e.getMessage() + Arrays.toString(e.getStackTrace()));
             } finally {
                 spcData = null;
             }
         }
-
     }
 
-    
-    private static ArrayList<Integer> GetColumnDataAsListOfInt(String tableName, String columnName){
+    private static void saveToDatabase(int[] d, SpcData spcData, boolean dbInsert_OK, int sensorId) {
+        spcData.setPc_time(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")));
+        if (d != null && d.length > 39 && d[22] != 0) {
+            //System.out.print("Size of data received: " + d.length + ". ");
+            String someTempoString = "";
+            for (int index = 0; index < 12;) {
+                someTempoString += (Character.toString((char) d[index]) + Character.toString((char) d[index + 1]));
+                index += 2;
+                if (index < 12) {
+                    someTempoString += "-";
+                }
+            }
+            spcData.setID_long(someTempoString);
+
+            someTempoString = "20" + String.format("%02d", d[12]) + "-" + String.format("%02d", d[13]) + "-" + String.format("%02d", d[14]) + " " + String.format("%02d", d[15]) + ":" + String.format("%02d", d[16]) + ":" + String.format("%02d", d[17]) + ".000";
+            spcData.setTemperature(String.format("%02d", d[18]) + "." + String.format("%02d", d[19]));
+            spcData.setHumidity(String.format("%02d", d[20]) + "." + String.format("%02d", d[21]));
+            spcData.setParticle03(extractParticleData(d, 24));
+            spcData.setParticle05(extractParticleData(d, 26));
+            spcData.setParticle10(extractParticleData(d, 28));
+            spcData.setParticle50(extractParticleData(d, 32));
+            spcData.setParticle100(extractParticleData(d, 34));
+            spcData.setParticle250(extractParticleData(d, 36));
+
+            spcData = SetData(spcData, "particle");
+
+            spcData.setTime(someTempoString);
+
+            dbInsert_OK = InsertDataIntoDB(spcData);
+            
+            System.out.println("" + spcData.toString() + "dbInsert_OK: " + dbInsert_OK);
+        } 
+        else
+        {
+            if (d == null) {
+                System.out.println("No data. d = null. sensorId: " + sensorId);
+            } 
+            else {
+                System.out.print("\n sensorId: " + sensorId);
+                for (int i = 0; i < d.length; i++) {
+                    System.out.print(" " + d[i] + " ");
+                }
+                System.out.println("\n");
+            }
+
+        }
+    }
+
+    private static ArrayList<Integer> GetColumnDataAsListOfInt(String tableName, String columnName) {
         ArrayList<Integer> result = null;
-        System.out.println("Getting column from table: " +tableName+ " "+columnName  ); 
+        System.out.println("Getting column from table: " + tableName + " " + columnName);
         try {
             result = new ArrayList<>();
-            if(myCon.isClosed()){
+            if (myCon.isClosed()) {
                 myCon = DriverManager.getConnection(g.getSQLConStr());
             }
             myStatement = myCon.createStatement();
             String sqlSelect = String.format("SELECT %s FROM [%s].[dbo].[%s]", columnName, g.getDB_NAME(), tableName);
             ResultSet rs = myStatement.executeQuery(sqlSelect);
-            
-            while(rs.next()){
+
+            while (rs.next()) {
                 result.add(rs.getInt(1));
-                System.out.println("ID: " + rs.getInt(1)); 
+                System.out.println("ID: " + rs.getInt(1));
             }
-            
+
         } catch (Exception e) {
         }
-        
+
         return result;
     }
-    
-    
-    private static ArrayList<String> GetColumnDataAsListOfString(String tableName, String columnName){
+
+    private static ArrayList<String> GetColumnDataAsListOfString(String tableName, String columnName) {
         ArrayList<String> result = new ArrayList<>();
-        
-        
+
         return result;
     }
-    
-    
-    
+
     /**
      * Return true if connected to the modbus client.
      *
@@ -171,6 +194,7 @@ public class DataCollectorCrossPlatformApp {
                 client.Connect(ip, port);
                 result = true;
             }
+
         } catch (IOException e) {
             System.out.println("Error " + e.getMessage() + Arrays.toString(e.getStackTrace()));
         }
